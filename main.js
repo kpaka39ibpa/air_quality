@@ -1,5 +1,6 @@
 document.addEventListener("DOMContentLoaded", async () => {
     const CHART_GRAY_COLOR = "#64748b";
+
     const pollutantsConfig = [
         { id: "pm25", name: "Particule în suspensie (PM2,5)", unit: "µg/m³", colNames: ["PM2.5", "PM2,5"], levels: { bun: [0, 5], acc: [6, 15], mod: [16, 50], rau: [51, 90], frau: [91, 140], ext: [141, 1000] }, rawLevels: { bun: "0-5", acc: "6-15", mod: "16-50", rau: "51-90", frau: "91-140", ext: ">140" } },
         { id: "pm10", name: "Particule în suspensie (PM10)", unit: "µg/m³", colNames: ["PM10"], levels: { bun: [0, 15], acc: [16, 45], mod: [46, 120], rau: [121, 195], frau: [196, 270], ext: [271, 1200] }, rawLevels: { bun: "0-15", acc: "16-45", mod: "46-120", rau: "121-195", frau: "196-270", ext: ">270" } },
@@ -7,7 +8,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         { id: "o3", name: "Ozon (O₃)", unit: "µg/m³", colNames: ["O3"], levels: { bun: [0, 60], acc: [61, 100], mod: [101, 120], rau: [121, 160], frau: [161, 180], ext: [181, 800] }, rawLevels: { bun: "0-60", acc: "61-100", mod: "101-120", rau: "121-160", frau: "161-180", ext: ">180" } },
         { id: "so2", name: "Dioxid de sulf (SO₂)", unit: "µg/m³", colNames: ["SO2"], levels: { bun: [0, 20], acc: [21, 40], mod: [41, 125], rau: [126, 190], frau: [191, 275], ext: [276, 1250] }, rawLevels: { bun: "0-20", acc: "21-40", mod: "41-125", rau: "126-190", frau: "191-275", ext: ">275" } },
         { id: "co", name: "Monoxid de carbon (CO)", unit: "µg/m³", colNames: ["CO"], levels: { bun: [0, 1], acc: [1, 4], mod: [4, 6], rau: [6, 8], frau: [8, 10], ext: [10, 100] }, rawLevels: { bun: "0-1.000", acc: "<4.000", mod: "<6.000", rau: "<8.000", frau: "<10.000", ext: ">10.000" } },
-        { id: "temp", name: "Temperatura aerului", unit: "°C", colNames: ["Temperature", "RT"], hideTable: true }
+        { id: "temp", name: "Temperatura aerului", unit: "°C", colNames: ["RT", "Temperature"], hideTable: true }
     ];
 
     Highcharts.setOptions({ time: { useUTC: false } });
@@ -22,7 +23,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         renderUI(jsonData);
     } catch (e) {
         if (accordion) {
-            accordion.innerHTML = `<p style="color:red; padding: 20px;">Nu s-au putut încărca datele pentru stația "${stationParam}". Verificați existența fișierelor CSV în data/${stationParam}/.</p>`;
+            accordion.innerHTML = `<p style="color:red; padding: 20px;">Nu s-au putut încărca datele pentru stația "${stationParam}". Verificați fișierele CSV din data/${stationParam}/.</p>`;
         }
     }
 
