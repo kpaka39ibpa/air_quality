@@ -5,6 +5,5 @@ services:
     ports:
       - "8085:80"
     volumes:
-      - ./data:/var/www/html/data
-      - ./archive:/var/www/html/archive
+      - .:/var/www/html
     restart: always
