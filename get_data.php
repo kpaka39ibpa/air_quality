@@ -3,38 +3,65 @@ header("Content-Type: application/json; charset=utf-8");
 ini_set("display_errors", 0);
 error_reporting(E_ALL);
 
-// 1. Получаем имя станции из GET (по умолчанию chisinau)
+// 1. Определяем папку станции
 $station = isset($_GET["station"]) ? trim($_GET["station"]) : "chisinau";
 $station = preg_replace("/[^a-zA-Z0-9_-]/", "", $station);
-
 $station_dir = __DIR__ . "/data/" . $station;
-$latest_file = $station_dir . "/latest.csv";
 
-if (!file_exists($latest_file)) {
-    $csvFiles = glob($station_dir . "/*.csv");
-    if (!empty($csvFiles)) {
-        usort($csvFiles, function($a, $b) { return filemtime($b) - filemtime($a); });
-        $latest_file = $csvFiles[0];
-    }
-}
-
-if (!file_exists($latest_file)) {
+if (!is_dir($station_dir)) {
     http_response_code(404);
-    echo json_encode(["error" => "Fișierul local pentru stația '{$station}' nu a fost găsit."]);
+    echo json_encode(["error" => "Directorul 'data/{$station}/' nu există."]);
     exit;
 }
 
-$lines = file($latest_file);
-if (!$lines || count($lines) < 2) {
+// 2. Ищем самый свежий CSV/TXT файл с любым именем (CSAU_*.csv, RPT3_*.csv и т.д.)
+$files = array_merge(
+    glob($station_dir . "/*.[cC][sS][vV]") ?: [],
+    glob($station_dir . "/*.[tT][xX][tT]") ?: []
+);
+
+if (empty($files)) {
+    http_response_code(404);
+    echo json_encode(["error" => "Niciun fișier CSV/TXT nu a fost găsit în 'data/{$station}/'."]);
+    exit;
+}
+
+// Сортируем по времени модификации (самый свежий — первый)
+usort($files, function($a, $b) { return filemtime($b) - filemtime($a); });
+$latest_file = $files[0];
+
+// 3. Чтение файла с обработкой кодировок (UTF-8 BOM / Windows-1252)
+$raw_content = file_get_contents($latest_file);
+if (!$raw_content) {
     http_response_code(400);
-    echo json_encode(["error" => "Fișierul este gol sau invalid."]);
+    echo json_encode(["error" => "Fișierul este gol."]);
     exit;
 }
 
-function parseCSVDate($dateStr) {
+// Удаляем UTF-8 BOM
+$raw_content = preg_replace('/\x{EF}\x{BB}\x{BF}/', '', $raw_content);
+
+// Проверяем валидность UTF-8, если нет — конвертируем из CP1252 (для спецсимволов CSAU)
+if (!mb_check_encoding($raw_content, 'UTF-8')) {
+    $raw_content = mb_convert_encoding($raw_content, 'UTF-8', 'Windows-1252');
+}
+
+$lines = array_values(array_filter(explode("\n", str_replace("\r", "", $raw_content)), 'trim'));
+
+if (count($lines) < 2) {
+    http_response_code(400);
+    echo json_encode(["error" => "Fișierul nu conține suficiente date."]);
+    exit;
+}
+
+// Парсер даты для обоих форматов
+function parseStationDate($dateStr) {
     $dateStr = trim($dateStr);
     if (empty($dateStr)) return false;
-    $formats = ["n/j/Y g:iA", "n/j/Y g:i A", "n/j/Y H:i", "Y-m-d H:i:s", "d.m.Y H:i", "d/m/Y H:i"];
+    $formats = [
+        "n/j/Y g:iA", "n/j/Y g:i A", "m/d/Y g:iA", "m/d/Y g:i A",
+        "Y-m-d H:i:s", "Y-m-d H:i", "d.m.Y H:i", "d/m/Y H:i"
+    ];
     foreach ($formats as $fmt) {
         $dt = DateTime::createFromFormat($fmt, $dateStr);
         if ($dt !== false) return $dt->getTimestamp();
@@ -42,7 +69,9 @@ function parseCSVDate($dateStr) {
     return strtotime($dateStr);
 }
 
-// 2. Логика для формата автологгера (Channel: / Unit:)
+// ---------------------------------------------------------------------
+// ДЕКОДЕР 1: Автологгер CSAU (Кишинёв) — ищет 'Channel:' и 'Unit:'
+// ---------------------------------------------------------------------
 $channel_line_idx = -1;
 $unit_line_idx = -1;
 
@@ -65,36 +94,28 @@ if ($channel_line_idx !== -1) {
     }
 
     $data_start_idx = ($unit_line_idx !== -1) ? $unit_line_idx + 1 : $channel_line_idx + 2;
-    $all_rows = [];
-
-    for ($i = $data_start_idx; $i < count($lines); $i++) {
-        $row = str_getcsv($lines[$i]);
-        if (count($row) < 2 || empty(trim($row[0]))) continue;
-        $ts = parseCSVDate($row[0]);
-        if ($ts) $all_rows[] = ["ts" => $ts, "row" => $row];
-    }
-
-    if (count($all_rows) > 720) $all_rows = array_slice($all_rows, -720);
-
     $series_data = [];
     $unique_channels = [];
 
-    foreach ($channel_map as $col_idx => $info) {
+    foreach ($channel_map as $info) {
         $ch_name = $info["name"];
         $series_data[$ch_name] = [];
         if (!in_array($ch_name, $unique_channels)) $unique_channels[] = $ch_name;
     }
 
-    foreach ($all_rows as $item) {
-        $ms = $item["ts"] * 1000;
-        $row = $item["row"];
+    for ($i = $data_start_idx; $i < count($lines); $i++) {
+        $row = str_getcsv($lines[$i]);
+        if (count($row) < 2 || empty(trim($row[0]))) continue;
+        $ts = parseStationDate($row[0]);
+        if (!$ts) continue;
+        $ms = $ts * 1000;
+
         foreach ($channel_map as $col_idx => $info) {
             $ch_name = $info["name"];
             if (isset($row[$col_idx])) {
                 $val_str = trim(str_replace(",", ".", $row[$col_idx]));
                 if ($val_str !== "" && is_numeric($val_str)) {
-                    $val = round((float)$val_str, 2);
-                    $series_data[$ch_name][] = [$ms, $val];
+                    $series_data[$ch_name][] = [$ms, (float)$val_str];
                 }
             }
         }
@@ -106,6 +127,7 @@ if ($channel_line_idx !== -1) {
 
     echo json_encode([
         "station" => strtoupper($station),
+        "filename" => basename($latest_file),
         "updated" => date("Y-m-d H:i:s", filemtime($latest_file)),
         "channels" => $unique_channels,
         "series" => $series_data
@@ -113,14 +135,16 @@ if ($channel_line_idx !== -1) {
     exit;
 }
 
-// 3. Простой формат CSV
+// ---------------------------------------------------------------------
+// ДЕКОДЕР 2: Отчеты RPT3 (Матеуць) — стандартный CSV без служебных Status
+// ---------------------------------------------------------------------
 $headers = str_getcsv($lines[0]);
 $series_data = [];
 $unique_channels = [];
 
 for ($col = 1; $col < count($headers); $col++) {
     $ch_name = trim($headers[$col]);
-    if ($ch_name !== "") {
+    if ($ch_name !== "" && strtolower($ch_name) !== "status") {
         $unique_channels[] = $ch_name;
         $series_data[$ch_name] = [];
     }
@@ -129,19 +153,24 @@ for ($col = 1; $col < count($headers); $col++) {
 for ($i = 1; $i < count($lines); $i++) {
     $row = str_getcsv($lines[$i]);
     if (count($row) < 2 || empty(trim($row[0]))) continue;
-    $ts = parseCSVDate($row[0]);
+    $ts = parseStationDate($row[0]);
     if (!$ts) continue;
     $ms = $ts * 1000;
+
     for ($col = 1; $col < count($headers); $col++) {
         $ch_name = trim($headers[$col]);
-        if (isset($row[$col]) && is_numeric(trim($row[$col]))) {
-            $series_data[$ch_name][] = [$ms, (float)trim($row[$col])];
+        if ($ch_name !== "" && strtolower($ch_name) !== "status" && isset($row[$col])) {
+            $val_str = trim(str_replace(",", ".", $row[$col]));
+            if ($val_str !== "" && is_numeric($val_str)) {
+                $series_data[$ch_name][] = [$ms, (float)$val_str];
+            }
         }
     }
 }
 
 echo json_encode([
     "station" => strtoupper($station),
+    "filename" => basename($latest_file),
     "updated" => date("Y-m-d H:i:s", filemtime($latest_file)),
     "channels" => $unique_channels,
     "series" => $series_data

@@ -1,4 +1,3 @@
-Set-Content -Path main.js -Value '@
 document.addEventListener("DOMContentLoaded", async () => {
     const CHART_GRAY_COLOR = "#64748b";
     const pollutantsConfig = [
@@ -22,7 +21,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         const jsonData = await response.json();
         renderUI(jsonData);
     } catch (e) {
-        accordion.innerHTML = `<p style="color:red;">A apărut o eroare la încărcarea datelor pentru stația '${stationParam}'. Asigurați-vă că fișierul data/${stationParam}/latest.csv există.</p>`;
+        if (accordion) {
+            accordion.innerHTML = `<p style="color:red; padding: 20px;">Nu s-au putut încărca datele pentru stația "${stationParam}". Verificați existența fișierelor CSV în data/${stationParam}/.</p>`;
+        }
     }
 
     function getActiveLevelKey(val, levels) {
@@ -36,6 +37,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     function renderUI(data) {
+        if (!accordion) return;
         accordion.innerHTML = "";
         if (!data.series) return;
 
@@ -108,4 +110,3 @@ document.addEventListener("DOMContentLoaded", async () => {
         });
     }
 });
-'@
