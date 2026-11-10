@@ -1,7 +1,7 @@
 services:
-  meteo-network-app:
+  air-quality-app:
     build: .
-    container_name: meteo_network_web
+    container_name: air_quality_web
     ports:
       - "8085:80"
     volumes:
